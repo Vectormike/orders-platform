@@ -1,4 +1,4 @@
-ppppackage outbox
+package outbox
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/segmentio/kafka-go"
+
+	"order-system/internal/ordercontract"
 )
 
 type KafkaPublisher struct {
@@ -23,7 +25,7 @@ func NewKafkaPublisher(brokers []string) *KafkaPublisher {
 
 func (p *KafkaPublisher) Publish(ctx context.Context, event Event) error {
 	message := kafka.Message{
-		Topic: event.EventType,
+		Topic: ordercontract.TopicForEvent(ordercontract.EventType(event.EventType)),
 		Key:   []byte(strconv.FormatInt(event.AggregateID, 10)),
 		Value: event.Payload,
 	}
