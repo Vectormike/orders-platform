@@ -2,9 +2,12 @@ package outbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
+
+	"order-system/internal/ordercontract"
 )
 
 type Relay struct {
@@ -71,7 +74,16 @@ func (r *Relay) processAllAvailable(ctx context.Context) error {
 		}
 
 		for _, event := range events {
-			if err := r.publisher.Publish(ctx, event); err != nil {
+			publishEvent, err := r.buildPublishEvent(event)
+			if err != nil {
+				if markErr := r.repository.MarkPending(ctx, event.ID, err.Error()); markErr != nil {
+					return fmt.Errorf("validation error %v and failed to mark pending: %w", err, markErr)
+				}
+				r.logger.Printf("validation failed for outbox %d: %v", event.ID, err)
+				continue
+			}
+
+			if err := r.publisher.Publish(ctx, publishEvent); err != nil {
 				if markErr := r.repository.MarkPending(ctx, event.ID, err.Error()); markErr != nil {
 					return fmt.Errorf("publish error %v and failed to mark pending: %w", err, markErr)
 				}
@@ -84,4 +96,37 @@ func (r *Relay) processAllAvailable(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (r *Relay) buildPublishEvent(event Event) (Event, error) {
+	if event.AggregateID <= 0 {
+		return Event{}, fmt.Errorf("invalid aggregate id: %d", event.AggregateID)
+	}
+
+	if len(event.Payload) == 0 || !json.Valid(event.Payload) {
+		return Event{}, fmt.Errorf("invalid event payload for outbox %d", event.ID)
+	}
+
+	outboxEventType := ordercontract.EventType(event.EventType)
+	publishEventType, err := ordercontract.RelayPublishEventType(outboxEventType)
+	if err != nil {
+		return Event{}, err
+	}
+
+	if outboxEventType == ordercontract.EventOrderCreated {
+		var payload struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return Event{}, fmt.Errorf("decode order.created payload: %w", err)
+		}
+		if payload.Status != string(ordercontract.StatusCreated) {
+			return Event{}, fmt.Errorf("expected order status %q, got %q", ordercontract.StatusCreated, payload.Status)
+		}
+	}
+
+	publishEvent := event
+	publishEvent.EventType = string(publishEventType)
+
+	return publishEvent, nil
 }
