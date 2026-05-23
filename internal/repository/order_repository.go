@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"order-system/internal/model"
+	"order-system/internal/ordercontract"
 )
 
 var ErrOrderNotFound = errors.New("order not found")
@@ -34,8 +35,8 @@ func NewOrderRepository(pool *pgxpool.Pool) OrderRepository {
 
 func (r *orderRepository) Create(ctx context.Context, params CreateOrderParams) (model.Order, error) {
 	const insertOrderQuery = `
-		INSERT INTO orders (customer_name, amount_cents)
-		VALUES ($1, $2)
+		INSERT INTO orders (customer_name, amount_cents, status)
+		VALUES ($1, $2, $3)
 		RETURNING id, customer_name, amount_cents, status, created_at;
 	`
 
@@ -51,7 +52,7 @@ func (r *orderRepository) Create(ctx context.Context, params CreateOrderParams) 
 	defer tx.Rollback(ctx)
 
 	var order model.Order
-	if err := tx.QueryRow(ctx, insertOrderQuery, params.CustomerName, params.AmountCents).
+	if err := tx.QueryRow(ctx, insertOrderQuery, params.CustomerName, params.AmountCents, ordercontract.StatusCreated).
 		Scan(&order.ID, &order.CustomerName, &order.AmountCents, &order.Status, &order.CreatedAt); err != nil {
 		return model.Order{}, fmt.Errorf("create order: %w", err)
 	}
@@ -61,7 +62,7 @@ func (r *orderRepository) Create(ctx context.Context, params CreateOrderParams) 
 		return model.Order{}, fmt.Errorf("marshal outbox payload: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, insertOutboxQuery, "order", order.ID, "order.created", payload); err != nil {
+	if _, err := tx.Exec(ctx, insertOutboxQuery, ordercontract.AggregateTypeOrder, order.ID, ordercontract.EventOrderCreated, payload); err != nil {
 		return model.Order{}, fmt.Errorf("insert outbox event: %w", err)
 	}
 
