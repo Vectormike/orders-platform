@@ -6,8 +6,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +14,7 @@ import (
 	"order-system/internal/config"
 	"order-system/internal/database"
 	"order-system/internal/outbox"
+	"order-system/internal/runtime"
 )
 
 func main() {
@@ -28,14 +27,14 @@ func main() {
 		log.Fatal("DATABASE_URL is required")
 	}
 
-	brokers := parseBrokers(os.Getenv("KAFKA_BROKERS"))
+	brokers := runtime.ParseBrokers(os.Getenv("KAFKA_BROKERS"))
 	if len(brokers) == 0 {
 		log.Fatal("KAFKA_BROKERS is required")
 	}
 
-	batchSize := getEnvInt("OUTBOX_BATCH_SIZE", 50)
-	fallbackInterval := time.Duration(getEnvInt("OUTBOX_FALLBACK_SECONDS", 30)) * time.Second
-	staleAfter := time.Duration(getEnvInt("OUTBOX_STALE_AFTER_SECONDS", 300)) * time.Second
+	batchSize := runtime.GetEnvInt("OUTBOX_BATCH_SIZE", 50)
+	fallbackInterval := time.Duration(runtime.GetEnvInt("OUTBOX_FALLBACK_SECONDS", 30)) * time.Second
+	staleAfter := time.Duration(runtime.GetEnvInt("OUTBOX_STALE_AFTER_SECONDS", 300)) * time.Second
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -99,35 +98,4 @@ func listenForOutboxNotify(ctx context.Context, databaseURL string, notifyCh cha
 		default:
 		}
 	}
-}
-
-func parseBrokers(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-
-	parts := strings.Split(raw, ",")
-	brokers := make([]string, 0, len(parts))
-	for _, part := range parts {
-		broker := strings.TrimSpace(part)
-		if broker != "" {
-			brokers = append(brokers, broker)
-		}
-	}
-
-	return brokers
-}
-
-func getEnvInt(key string, fallback int) int {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed <= 0 {
-		return fallback
-	}
-
-	return parsed
 }
