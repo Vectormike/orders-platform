@@ -13,6 +13,12 @@ CREATE TABLE IF NOT EXISTS orders (
 	id BIGSERIAL PRIMARY KEY,
 	customer_name TEXT NOT NULL,
 	amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+	shipping_address_line TEXT NOT NULL DEFAULT '',
+	shipping_city TEXT NOT NULL DEFAULT '',
+	shipping_country_code TEXT NOT NULL DEFAULT '',
+	payment_token TEXT NOT NULL DEFAULT '',
+	retry_count INTEGER NOT NULL DEFAULT 0,
+	last_failure_reason TEXT NULL,
 	status TEXT NOT NULL DEFAULT 'created',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -34,6 +40,12 @@ CREATE TABLE IF NOT EXISTS outbox (
 ALTER TABLE outbox ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE outbox ADD COLUMN IF NOT EXISTS last_error TEXT NULL;
 ALTER TABLE outbox ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address_line TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_city TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_country_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS last_failure_reason TEXT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_outbox_status_created_at
 ON outbox (status, created_at, id);
