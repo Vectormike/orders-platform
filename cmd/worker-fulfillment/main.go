@@ -55,7 +55,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	repository := fulfillment.NewRepository(pool)
+	verifier := fulfillment.NewTokenExternalVerifier()
+	repository := fulfillment.NewRepository(pool, verifier)
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:  brokers,
@@ -110,7 +111,10 @@ func processMessage(ctx context.Context, repository *fulfillment.Repository, mes
 	err := repository.FulfillFromProcessingEvent(ctx, payload.ID)
 	if err != nil {
 		switch {
-		case errors.Is(err, fulfillment.ErrOrderNotFound), errors.Is(err, fulfillment.ErrInvalidTransition):
+		case errors.Is(err, fulfillment.ErrOrderNotFound),
+			errors.Is(err, fulfillment.ErrInvalidTransition),
+			errors.Is(err, fulfillment.ErrTerminalFailureHandled),
+			errors.Is(err, fulfillment.ErrRetryableFailureHandled):
 			// Drop poison/non-actionable events to keep consumption moving.
 			return true, err
 		default:
