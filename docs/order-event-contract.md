@@ -41,9 +41,33 @@ Terminal statuses:
   - consumes `order.incomplete`
   - applies retry policy and backoff
   - emits `order.processing` to retry fulfillment, or emits `order.failed` after max retries
+  - tracks `retry_count` and `last_failure_reason` on the order row
 
 ## Relay responsibility
 
 - Outbox relay verifies outbox events before publish.
 - For outbox `order.created`, relay verifies payload and remaps event to Kafka topic `order.processing`.
 - Relay may publish `order.fulfilled`, `order.incomplete`, and `order.failed` directly without remapping.
+
+## Fulfillment validation levels
+
+Fulfillment worker validates in this order:
+
+1. Format checks
+   - `shipping_address_line` is present
+   - `shipping_city` is present
+   - `shipping_country_code` is ISO-2
+   - `payment_token` is present and has minimum format
+2. Business checks
+   - country is currently one of `NG`, `US`, `GB`
+   - amount is greater than zero
+3. External verification hook
+   - `ExternalVerifier` interface classifies provider outcomes:
+     - retryable -> `order.incomplete`
+     - terminal -> `order.failed`
+   - current default implementation is token-based for local/dev behavior
+
+Failure outcomes:
+
+- Retryable failure -> emits `order.incomplete`
+- Terminal failure -> emits `order.failed`
