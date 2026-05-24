@@ -13,8 +13,12 @@ var ErrInvalidOrderInput = errors.New("invalid order input")
 var ErrOrderNotFound = errors.New("order not found")
 
 type CreateOrderInput struct {
-	CustomerName string
-	AmountCents  int64
+	CustomerName        string
+	AmountCents         int64
+	ShippingAddressLine string
+	ShippingCity        string
+	ShippingCountryCode string
+	PaymentToken        string
 }
 
 type OrderService interface {
@@ -36,8 +40,12 @@ func (s *orderService) CreateOrder(ctx context.Context, input CreateOrderInput) 
 	}
 
 	return s.orderRepository.Create(ctx, repository.CreateOrderParams{
-		CustomerName: strings.TrimSpace(input.CustomerName),
-		AmountCents:  input.AmountCents,
+		CustomerName:        strings.TrimSpace(input.CustomerName),
+		AmountCents:         input.AmountCents,
+		ShippingAddressLine: strings.TrimSpace(input.ShippingAddressLine),
+		ShippingCity:        strings.TrimSpace(input.ShippingCity),
+		ShippingCountryCode: strings.TrimSpace(input.ShippingCountryCode),
+		PaymentToken:        strings.TrimSpace(input.PaymentToken),
 	})
 }
 
