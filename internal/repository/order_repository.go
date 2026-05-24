@@ -16,8 +16,12 @@ import (
 var ErrOrderNotFound = errors.New("order not found")
 
 type CreateOrderParams struct {
-	CustomerName string
-	AmountCents  int64
+	CustomerName        string
+	AmountCents         int64
+	ShippingAddressLine string
+	ShippingCity        string
+	ShippingCountryCode string
+	PaymentToken        string
 }
 
 type OrderRepository interface {
@@ -35,9 +39,17 @@ func NewOrderRepository(pool *pgxpool.Pool) OrderRepository {
 
 func (r *orderRepository) Create(ctx context.Context, params CreateOrderParams) (model.Order, error) {
 	const insertOrderQuery = `
-		INSERT INTO orders (customer_name, amount_cents, status)
-		VALUES ($1, $2, $3)
-		RETURNING id, customer_name, amount_cents, status, created_at;
+		INSERT INTO orders (
+			customer_name,
+			amount_cents,
+			shipping_address_line,
+			shipping_city,
+			shipping_country_code,
+			payment_token,
+			status
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, customer_name, amount_cents, shipping_address_line, shipping_city, shipping_country_code, payment_token, status, created_at;
 	`
 
 	const insertOutboxQuery = `
@@ -52,8 +64,27 @@ func (r *orderRepository) Create(ctx context.Context, params CreateOrderParams) 
 	defer tx.Rollback(ctx)
 
 	var order model.Order
-	if err := tx.QueryRow(ctx, insertOrderQuery, params.CustomerName, params.AmountCents, ordercontract.StatusCreated).
-		Scan(&order.ID, &order.CustomerName, &order.AmountCents, &order.Status, &order.CreatedAt); err != nil {
+	if err := tx.QueryRow(
+		ctx,
+		insertOrderQuery,
+		params.CustomerName,
+		params.AmountCents,
+		params.ShippingAddressLine,
+		params.ShippingCity,
+		params.ShippingCountryCode,
+		params.PaymentToken,
+		ordercontract.StatusCreated,
+	).Scan(
+		&order.ID,
+		&order.CustomerName,
+		&order.AmountCents,
+		&order.ShippingAddressLine,
+		&order.ShippingCity,
+		&order.ShippingCountryCode,
+		&order.PaymentToken,
+		&order.Status,
+		&order.CreatedAt,
+	); err != nil {
 		return model.Order{}, fmt.Errorf("create order: %w", err)
 	}
 
@@ -79,14 +110,33 @@ func (r *orderRepository) Create(ctx context.Context, params CreateOrderParams) 
 
 func (r *orderRepository) GetByID(ctx context.Context, id int64) (model.Order, error) {
 	const query = `
-SELECT id, customer_name, amount_cents, status, created_at
+SELECT
+	id,
+	customer_name,
+	amount_cents,
+	shipping_address_line,
+	shipping_city,
+	shipping_country_code,
+	payment_token,
+	status,
+	created_at
 FROM orders
 WHERE id = $1;
 `
 
 	var order model.Order
 	err := r.pool.QueryRow(ctx, query, id).
-		Scan(&order.ID, &order.CustomerName, &order.AmountCents, &order.Status, &order.CreatedAt)
+		Scan(
+			&order.ID,
+			&order.CustomerName,
+			&order.AmountCents,
+			&order.ShippingAddressLine,
+			&order.ShippingCity,
+			&order.ShippingCountryCode,
+			&order.PaymentToken,
+			&order.Status,
+			&order.CreatedAt,
+		)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Order{}, ErrOrderNotFound
