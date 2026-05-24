@@ -46,7 +46,7 @@ func RelayPublishEventType(eventType EventType) (EventType, error) {
 	switch eventType {
 	case EventOrderCreated:
 		return EventOrderProcessing, nil
-	case EventOrderFulfilled, EventOrderIncomplete, EventOrderFailed:
+	case EventOrderProcessing, EventOrderFulfilled, EventOrderIncomplete, EventOrderFailed:
 		return eventType, nil
 	default:
 		return "", fmt.Errorf("unsupported outbox event type: %s", eventType)
