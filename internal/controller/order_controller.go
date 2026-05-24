@@ -15,8 +15,12 @@ type OrderController struct {
 }
 
 type createOrderRequest struct {
-	CustomerName string `json:"customer_name"`
-	AmountCents  int64  `json:"amount_cents"`
+	CustomerName        string `json:"customer_name"`
+	AmountCents         int64  `json:"amount_cents"`
+	ShippingAddressLine string `json:"shipping_address_line"`
+	ShippingCity        string `json:"shipping_city"`
+	ShippingCountryCode string `json:"shipping_country_code"`
+	PaymentToken        string `json:"payment_token"`
 }
 
 func NewOrderController(orderService service.OrderService) *OrderController {
@@ -36,8 +40,12 @@ func (o *OrderController) CreateOrder(c *gin.Context) {
 	}
 
 	order, err := o.orderService.CreateOrder(c.Request.Context(), service.CreateOrderInput{
-		CustomerName: request.CustomerName,
-		AmountCents:  request.AmountCents,
+		CustomerName:        request.CustomerName,
+		AmountCents:         request.AmountCents,
+		ShippingAddressLine: request.ShippingAddressLine,
+		ShippingCity:        request.ShippingCity,
+		ShippingCountryCode: request.ShippingCountryCode,
+		PaymentToken:        request.PaymentToken,
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidOrderInput) {
