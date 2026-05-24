@@ -15,13 +15,23 @@ import (
 
 var ErrOrderNotFound = errors.New("order not found")
 var ErrInvalidTransition = errors.New("invalid order status transition")
+var ErrTerminalFailureHandled = errors.New("terminal failure handled")
+var ErrRetryableFailureHandled = errors.New("retryable failure handled")
 
 type Repository struct {
-	pool *pgxpool.Pool
+	pool             *pgxpool.Pool
+	externalVerifier ExternalVerifier
 }
 
-func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+func NewRepository(pool *pgxpool.Pool, externalVerifier ExternalVerifier) *Repository {
+	if externalVerifier == nil {
+		externalVerifier = NewNoopExternalVerifier()
+	}
+
+	return &Repository{
+		pool:             pool,
+		externalVerifier: externalVerifier,
+	}
 }
 
 func (r *Repository) FulfillFromProcessingEvent(ctx context.Context, orderID int64) error {
@@ -51,6 +61,11 @@ func (r *Repository) FulfillFromProcessingEvent(ctx context.Context, orderID int
 		if err := updateOrderStatus(ctx, tx, orderID, ordercontract.StatusProcessing); err != nil {
 			return err
 		}
+		order.Status = string(ordercontract.StatusProcessing)
+	}
+
+	if err := validateOrderForFulfillment(ctx, order, r.externalVerifier); err != nil {
+		return handleValidationFailure(ctx, tx, order, err)
 	}
 
 	if !ordercontract.CanTransition(ordercontract.StatusProcessing, ordercontract.StatusFulfilled) {
@@ -84,7 +99,7 @@ func (r *Repository) FulfillFromProcessingEvent(ctx context.Context, orderID int
 
 func getOrderForUpdate(ctx context.Context, tx pgx.Tx, orderID int64) (model.Order, error) {
 	const query = `
-SELECT id, customer_name, amount_cents, status, created_at
+SELECT id, customer_name, amount_cents, shipping_address_line, shipping_city, shipping_country_code, payment_token, status, created_at
 FROM orders
 WHERE id = $1
 FOR UPDATE;
@@ -92,7 +107,17 @@ FOR UPDATE;
 
 	var order model.Order
 	err := tx.QueryRow(ctx, query, orderID).
-		Scan(&order.ID, &order.CustomerName, &order.AmountCents, &order.Status, &order.CreatedAt)
+		Scan(
+			&order.ID,
+			&order.CustomerName,
+			&order.AmountCents,
+			&order.ShippingAddressLine,
+			&order.ShippingCity,
+			&order.ShippingCountryCode,
+			&order.PaymentToken,
+			&order.Status,
+			&order.CreatedAt,
+		)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Order{}, ErrOrderNotFound
@@ -122,12 +147,22 @@ func updateOrderStatusAndReturn(ctx context.Context, tx pgx.Tx, orderID int64, s
 UPDATE orders
 SET status = $2
 WHERE id = $1
-RETURNING id, customer_name, amount_cents, status, created_at;
+RETURNING id, customer_name, amount_cents, shipping_address_line, shipping_city, shipping_country_code, payment_token, status, created_at;
 `
 
 	var order model.Order
 	if err := tx.QueryRow(ctx, query, orderID, status).
-		Scan(&order.ID, &order.CustomerName, &order.AmountCents, &order.Status, &order.CreatedAt); err != nil {
+		Scan(
+			&order.ID,
+			&order.CustomerName,
+			&order.AmountCents,
+			&order.ShippingAddressLine,
+			&order.ShippingCity,
+			&order.ShippingCountryCode,
+			&order.PaymentToken,
+			&order.Status,
+			&order.CreatedAt,
+		); err != nil {
 		return model.Order{}, fmt.Errorf("update order status and return: %w", err)
 	}
 
@@ -145,4 +180,86 @@ VALUES ($1, $2, $3, $4);
 	}
 
 	return nil
+}
+
+func handleValidationFailure(ctx context.Context, tx pgx.Tx, order model.Order, cause error) error {
+	validationErr, ok := cause.(validationFailure)
+	if !ok {
+		return fmt.Errorf("unexpected validation error type: %w", cause)
+	}
+
+	switch validationErr.kind {
+	case failureKindRetryable:
+		if !ordercontract.CanTransition(ordercontract.OrderStatus(order.Status), ordercontract.StatusIncomplete) {
+			return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, order.Status, ordercontract.StatusIncomplete)
+		}
+		incompleteOrder, err := updateOrderStatusAndReturn(ctx, tx, order.ID, ordercontract.StatusIncomplete)
+		if err != nil {
+			return err
+		}
+
+		payload, err := buildFailurePayload(incompleteOrder, validationErr.reason)
+		if err != nil {
+			return err
+		}
+		if err := insertOutboxEvent(ctx, tx, incompleteOrder.ID, ordercontract.EventOrderIncomplete, payload); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "SELECT pg_notify('outbox_new', $1);", fmt.Sprintf("%d", incompleteOrder.ID)); err != nil {
+			return fmt.Errorf("notify outbox relay: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit retryable failure transaction: %w", err)
+		}
+		return fmt.Errorf("%w: %s", ErrRetryableFailureHandled, validationErr.reason)
+	case failureKindTerminal:
+		if !ordercontract.CanTransition(ordercontract.OrderStatus(order.Status), ordercontract.StatusFailed) {
+			if ordercontract.CanTransition(ordercontract.OrderStatus(order.Status), ordercontract.StatusIncomplete) {
+				if err := updateOrderStatus(ctx, tx, order.ID, ordercontract.StatusIncomplete); err != nil {
+					return err
+				}
+			} else {
+				return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, order.Status, ordercontract.StatusFailed)
+			}
+		}
+
+		failedOrder, err := updateOrderStatusAndReturn(ctx, tx, order.ID, ordercontract.StatusFailed)
+		if err != nil {
+			return err
+		}
+
+		payload, err := buildFailurePayload(failedOrder, validationErr.reason)
+		if err != nil {
+			return err
+		}
+		if err := insertOutboxEvent(ctx, tx, failedOrder.ID, ordercontract.EventOrderFailed, payload); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "SELECT pg_notify('outbox_new', $1);", fmt.Sprintf("%d", failedOrder.ID)); err != nil {
+			return fmt.Errorf("notify outbox relay: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit terminal failure transaction: %w", err)
+		}
+		return fmt.Errorf("%w: %s", ErrTerminalFailureHandled, validationErr.reason)
+	default:
+		return fmt.Errorf("unknown validation failure kind: %s", validationErr.kind)
+	}
+}
+
+func buildFailurePayload(order model.Order, reason string) ([]byte, error) {
+	payload := struct {
+		Order  model.Order `json:"order"`
+		Reason string      `json:"reason"`
+	}{
+		Order:  order,
+		Reason: reason,
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal validation failure payload: %w", err)
+	}
+
+	return encoded, nil
 }
