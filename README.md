@@ -26,3 +26,7 @@
   - `internal/recovery/repository.go`
 - Schema support:
   - `internal/database/schema.go`
+
+## Verification
+
+- End-to-end runbook: `docs/end-to-end-verification-playbook.md`

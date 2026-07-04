@@ -1,0 +1,171 @@
+# End-to-End Verification Playbook
+
+This playbook validates the full local flow:
+
+- API (`cmd/api`)
+- Outbox relay (`cmd/outbox-relay`)
+- Fulfillment worker (`cmd/worker-fulfillment`)
+- Recovery worker (`cmd/worker-recovery`)
+
+It covers three paths:
+
+1. success (`order.fulfilled`)
+2. retryable failure (`order.incomplete` -> recovery retry)
+3. terminal failure (`order.failed`)
+
+## 1) Prerequisites
+
+- Postgres running and reachable by `DATABASE_URL`
+- Kafka running and reachable by `KAFKA_BROKERS`
+- `.env` at project root includes at least:
+
+```env
+APP_ENV=dev
+PORT=8080
+DATABASE_URL=postgres://user:password@localhost:5432/order_system?sslmode=disable
+KAFKA_BROKERS=localhost:9092
+RECOVERY_MAX_RETRIES=3
+```
+
+## 2) Start all processes (separate terminals)
+
+From project root:
+
+```bash
+make api
+```
+
+```bash
+make relay
+```
+
+```bash
+make worker-fulfillment
+```
+
+```bash
+make worker-recovery
+```
+
+Quick helper:
+
+```bash
+make e2e-local
+```
+
+## 3) Optional: clean state before each scenario
+
+```sql
+TRUNCATE TABLE outbox RESTART IDENTITY;
+TRUNCATE TABLE orders RESTART IDENTITY;
+```
+
+## 4) Scenario A: success path
+
+Create order with a normal token (not prefixed by `retry_` or `declined_`):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_name":"Alice",
+    "amount_cents":15000,
+    "shipping_address_line":"10 Broad St",
+    "shipping_city":"Lagos",
+    "shipping_country_code":"NG",
+    "payment_token":"tok_live_ok_12345"
+  }'
+```
+
+Expected:
+
+- API returns `201`
+- final order status becomes `fulfilled`
+- outbox has events including `order.created` and `order.fulfilled`
+
+Verify:
+
+```sql
+SELECT id, status, retry_count, last_failure_reason FROM orders ORDER BY id DESC LIMIT 1;
+SELECT id, event_type, status FROM outbox ORDER BY id DESC LIMIT 10;
+```
+
+## 5) Scenario B: retryable failure path
+
+Create order with token prefixed by `retry_`:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_name":"Bob",
+    "amount_cents":22000,
+    "shipping_address_line":"1 Retry Ave",
+    "shipping_city":"Lagos",
+    "shipping_country_code":"NG",
+    "payment_token":"retry_gateway_timeout_001"
+  }'
+```
+
+Expected:
+
+- fulfillment emits `order.incomplete`
+- recovery consumes `order.incomplete`
+- recovery emits `order.processing` until max retries reached
+- after `RECOVERY_MAX_RETRIES`, recovery emits `order.failed`
+- final order status becomes `failed`
+
+Verify:
+
+```sql
+SELECT id, status, retry_count, last_failure_reason FROM orders ORDER BY id DESC LIMIT 1;
+SELECT id, event_type, status, attempt_count, last_error FROM outbox ORDER BY id DESC LIMIT 20;
+```
+
+## 6) Scenario C: terminal failure path
+
+Create order with token prefixed by `declined_`:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_name":"Cara",
+    "amount_cents":18000,
+    "shipping_address_line":"22 Main Rd",
+    "shipping_city":"Abuja",
+    "shipping_country_code":"NG",
+    "payment_token":"declined_card_stolen_777"
+  }'
+```
+
+Expected:
+
+- fulfillment directly emits `order.failed`
+- recovery is not needed for terminal failure
+- final order status is `failed` with reason
+
+Verify:
+
+```sql
+SELECT id, status, retry_count, last_failure_reason FROM orders ORDER BY id DESC LIMIT 1;
+SELECT id, event_type, status FROM outbox ORDER BY id DESC LIMIT 10;
+```
+
+## 7) Quick health checks
+
+```bash
+curl -sS http://127.0.0.1:8080/health
+```
+
+```bash
+curl -sS http://127.0.0.1:8080/orders/1
+```
+
+## 8) Notes
+
+- `order.created` is the DB persistence event; relay remaps it to `order.processing` for Kafka consumers.
+- Fulfillment external verification is currently token-based for local testing:
+  - `retry_...` -> retryable
+  - `declined_...` -> terminal
+  - anything else -> pass
