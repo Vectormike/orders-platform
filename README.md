@@ -24,9 +24,15 @@
 - Recovery worker:
   - `cmd/worker-recovery/main.go`
   - `internal/recovery/repository.go`
+- Notifications worker:
+  - `cmd/worker-notifications/main.go`
+  - `internal/notification/processor.go`
+  - `internal/notification/openai_generator.go`
+  - `internal/notification/whatsapp_webhook_sender.go` (Meta Cloud API sender)
 - Schema support:
   - `internal/database/schema.go`
 
 ## Verification
 
 - End-to-end runbook: `docs/end-to-end-verification-playbook.md`
+- Env template: `.env.example`
