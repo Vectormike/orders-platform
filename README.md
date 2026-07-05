@@ -1,5 +1,9 @@
 # orders-platform
 
+## Architecture Overview
+
+![Architecture Overview](docs/architecture-overview.png)
+
 ## Order Processing Flow
 
 ![Order Processing Flow](docs/order-processing-flow.png)
