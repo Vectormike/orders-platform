@@ -1,0 +1,46 @@
+digraph NotificationPath {
+  rankdir=LR;
+  splines=ortho;
+  nodesep=0.45;
+  ranksep=0.7;
+  fontname="Arial";
+  bgcolor="white";
+
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, color="#d0d7de", fillcolor="#f6f8fa"];
+  edge [color="#57606a", arrowsize=0.7, penwidth=1.2, fontname="Arial", fontsize=10];
+
+  subgraph cluster_failure_sources {
+    label="Failure Sources";
+    color="#d8dee4";
+    style="rounded";
+    fw_retry [label="Fulfillment worker\n(retryable)\n-> order.incomplete", fillcolor="#fff8c5"];
+    fw_terminal [label="Fulfillment worker\n(terminal)\n-> order.failed", fillcolor="#ffd8d8"];
+    rw_terminal [label="Recovery worker\n(max retries)\n-> order.failed", fillcolor="#ffd8d8"];
+  }
+
+  outbox [label="Postgres outbox\n(event persisted)", fillcolor="#eaf5ff"];
+  relay [label="Outbox relay\npublish to Kafka", fillcolor="#eaf5ff"];
+  kafka [label="Kafka topics\norder.incomplete / order.failed", fillcolor="#eaf5ff"];
+
+  notify_worker [label="Notifications worker\nconsume events", fillcolor="#e9fbe9"];
+  openai [label="OpenAI Responses API\n(generate message)", fillcolor="#efeaff"];
+  fallback [label="Fallback template\n(if AI unavailable)", fillcolor="#fff8c5"];
+  sender [label="Sender channel\nWhatsApp / SMS / Email", fillcolor="#e9fbe9"];
+  customer [label="Customer receives\nreal-time update", fillcolor="#ddf4ff"];
+
+  fw_retry -> outbox;
+  fw_terminal -> outbox;
+  rw_terminal -> outbox;
+
+  outbox -> relay [label="claim pending rows"];
+  relay -> kafka [label="publish event"];
+  kafka -> notify_worker [label="consume"];
+
+  notify_worker -> openai [label="optional"];
+  openai -> notify_worker [label="message or error"];
+  notify_worker -> fallback [label="on AI error"];
+  fallback -> notify_worker [label="fallback text"];
+
+  notify_worker -> sender [label="send final message"];
+  sender -> customer;
+}
