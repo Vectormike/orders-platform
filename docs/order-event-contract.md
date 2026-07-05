@@ -43,6 +43,11 @@ Terminal statuses:
   - emits `order.processing` to retry fulfillment, or emits `order.failed` after max retries
   - tracks `retry_count` and `last_failure_reason` on the order row
 
+- Notifications worker:
+  - consumes `order.fulfilled`, `order.incomplete`, and `order.failed`
+  - generates customer message text (OpenAI + fallback template)
+  - sends via configured channel (stdout/WhatsApp/SMS/Email adapters)
+
 ## Relay responsibility
 
 - Outbox relay verifies outbox events before publish.
@@ -71,3 +76,9 @@ Failure outcomes:
 
 - Retryable failure -> emits `order.incomplete`
 - Terminal failure -> emits `order.failed`
+
+## Notification path
+
+Notification delivery is event-driven and always goes through outbox relay.
+
+![Notification path](notification-path.png)
