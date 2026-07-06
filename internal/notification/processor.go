@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -35,6 +36,8 @@ func (p *Processor) Process(ctx context.Context, topic string, payload []byte) e
 		generated, err := p.generator.Generate(ctx, event, fallback)
 		if err == nil && strings.TrimSpace(generated) != "" {
 			messageText = strings.TrimSpace(generated)
+		} else if err != nil {
+			log.Printf("openai generator unavailable, using fallback message (order_id=%d event=%s): %v", event.OrderID, event.EventType, err)
 		}
 	}
 

@@ -29,7 +29,7 @@ cp .env.example .env
 ```env
 APP_ENV=dev
 PORT=8080
-DATABASE_URL=postgres://user:password@localhost:5432/order_system?sslmode=disable
+DATABASE_URL=postgres://user:password@localhost:5433/order_system?sslmode=disable
 KAFKA_BROKERS=localhost:9092
 RECOVERY_MAX_RETRIES=3
 ```
@@ -203,6 +203,8 @@ curl -sS http://127.0.0.1:8080/orders/1
 - For Meta WhatsApp Cloud delivery set:
   - `NOTIFICATION_CHANNEL=whatsapp`
   - `NOTIFICATION_RECIPIENT=<customer_e164_phone>`
-  - `WHATSAPP_ACCESS_TOKEN=<meta_cloud_token>`
-  - `WHATSAPP_PHONE_NUMBER_ID=<meta_phone_number_id>`
-  - optional `WHATSAPP_API_VERSION=v21.0`
+  - `WHATSAPP_PROVIDER=twilio` (default)
+  - `TWILIO_ACCOUNT_SID=<twilio_account_sid>`
+  - `TWILIO_AUTH_TOKEN=<twilio_auth_token>`
+  - `TWILIO_WHATSAPP_FROM=whatsapp:+14155238886`
+  - Or use Meta by setting `WHATSAPP_PROVIDER=meta` and the Meta variables

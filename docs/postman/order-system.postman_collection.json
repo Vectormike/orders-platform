@@ -1,0 +1,128 @@
+{
+  "info": {
+    "_postman_id": "4d2f0d95-f5fb-4e9a-a97e-2ca20f3ca7da",
+    "name": "Order System Local",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Local API checks for health, create order flows, and order lookup."
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Order - Success",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_name\": \"Alice\",\n  \"amount_cents\": 15000,\n  \"shipping_address_line\": \"10 Broad St\",\n  \"shipping_city\": \"Lagos\",\n  \"shipping_country_code\": \"NG\",\n  \"payment_token\": \"tok_live_ok_12345\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Order - Retryable",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_name\": \"Bob\",\n  \"amount_cents\": 22000,\n  \"shipping_address_line\": \"1 Retry Ave\",\n  \"shipping_city\": \"Lagos\",\n  \"shipping_country_code\": \"NG\",\n  \"payment_token\": \"retry_gateway_timeout_001\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Order - Terminal",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customer_name\": \"Charles\",\n  \"amount_cents\": 32000,\n  \"shipping_address_line\": \"22 Main Rd\",\n  \"shipping_city\": \"Abuja\",\n  \"shipping_country_code\": \"NG\",\n  \"payment_token\": \"declined_card_stolen_777\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Order by ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/orders/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "orders",
+            "{{orderId}}"
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080"
+    },
+    {
+      "key": "orderId",
+      "value": "1"
+    }
+  ]
+}

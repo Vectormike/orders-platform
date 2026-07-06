@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -64,7 +66,12 @@ func (s *WhatsAppMetaSender) Send(ctx context.Context, message Message) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("whatsapp meta returned status %d", resp.StatusCode)
+		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		apiMessage := strings.TrimSpace(string(responseBody))
+		if apiMessage == "" {
+			return fmt.Errorf("whatsapp meta returned status %d", resp.StatusCode)
+		}
+		return fmt.Errorf("whatsapp meta returned status %d: %s", resp.StatusCode, apiMessage)
 	}
 
 	return nil

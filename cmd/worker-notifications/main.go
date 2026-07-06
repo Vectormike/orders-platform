@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -44,16 +45,43 @@ func main() {
 	var sender notification.Sender
 	switch channel {
 	case "whatsapp":
-		accessToken := strings.TrimSpace(os.Getenv("WHATSAPP_ACCESS_TOKEN"))
-		if accessToken == "" {
-			log.Fatal("WHATSAPP_ACCESS_TOKEN is required when NOTIFICATION_CHANNEL=whatsapp")
+		if !isLikelyE164(recipient) {
+			log.Fatal("NOTIFICATION_RECIPIENT must be a valid E.164 phone number when NOTIFICATION_CHANNEL=whatsapp (example: +2348012345678)")
 		}
-		phoneNumberID := strings.TrimSpace(os.Getenv("WHATSAPP_PHONE_NUMBER_ID"))
-		if phoneNumberID == "" {
-			log.Fatal("WHATSAPP_PHONE_NUMBER_ID is required when NOTIFICATION_CHANNEL=whatsapp")
+		provider := strings.ToLower(strings.TrimSpace(os.Getenv("WHATSAPP_PROVIDER")))
+		if provider == "" {
+			provider = "twilio"
 		}
-		apiVersion := strings.TrimSpace(os.Getenv("WHATSAPP_API_VERSION"))
-		sender = notification.NewWhatsAppMetaSender(accessToken, phoneNumberID, apiVersion)
+
+		switch provider {
+		case "twilio":
+			accountSID := strings.TrimSpace(os.Getenv("TWILIO_ACCOUNT_SID"))
+			if accountSID == "" {
+				log.Fatal("TWILIO_ACCOUNT_SID is required when NOTIFICATION_CHANNEL=whatsapp and WHATSAPP_PROVIDER=twilio")
+			}
+			authToken := strings.TrimSpace(os.Getenv("TWILIO_AUTH_TOKEN"))
+			if authToken == "" {
+				log.Fatal("TWILIO_AUTH_TOKEN is required when NOTIFICATION_CHANNEL=whatsapp and WHATSAPP_PROVIDER=twilio")
+			}
+			fromNumber := strings.TrimSpace(os.Getenv("TWILIO_WHATSAPP_FROM"))
+			if fromNumber == "" {
+				log.Fatal("TWILIO_WHATSAPP_FROM is required when NOTIFICATION_CHANNEL=whatsapp and WHATSAPP_PROVIDER=twilio (example: whatsapp:+14155238886)")
+			}
+			sender = notification.NewWhatsAppTwilioSender(accountSID, authToken, fromNumber)
+		case "meta":
+			accessToken := strings.TrimSpace(os.Getenv("WHATSAPP_ACCESS_TOKEN"))
+			if accessToken == "" {
+				log.Fatal("WHATSAPP_ACCESS_TOKEN is required when NOTIFICATION_CHANNEL=whatsapp and WHATSAPP_PROVIDER=meta")
+			}
+			phoneNumberID := strings.TrimSpace(os.Getenv("WHATSAPP_PHONE_NUMBER_ID"))
+			if phoneNumberID == "" {
+				log.Fatal("WHATSAPP_PHONE_NUMBER_ID is required when NOTIFICATION_CHANNEL=whatsapp and WHATSAPP_PROVIDER=meta")
+			}
+			apiVersion := strings.TrimSpace(os.Getenv("WHATSAPP_API_VERSION"))
+			sender = notification.NewWhatsAppMetaSender(accessToken, phoneNumberID, apiVersion)
+		default:
+			log.Fatalf("unsupported WHATSAPP_PROVIDER=%q (use twilio or meta)", provider)
+		}
 	default:
 		channel = "stdout"
 		sender = notification.NewStdoutSender()
@@ -112,4 +140,10 @@ func main() {
 	}
 
 	log.Println("notifications worker stopped")
+}
+
+var e164Pattern = regexp.MustCompile(`^\+[1-9]\d{7,14}$`)
+
+func isLikelyE164(value string) bool {
+	return e164Pattern.MatchString(strings.TrimSpace(value))
 }
