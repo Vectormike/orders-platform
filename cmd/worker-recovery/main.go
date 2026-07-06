@@ -21,6 +21,9 @@ import (
 type incompleteEventPayload struct {
 	ID     int64  `json:"id"`
 	Reason string `json:"reason"`
+	Order  struct {
+		ID int64 `json:"id"`
+	} `json:"order"`
 }
 
 func main() {
@@ -107,7 +110,11 @@ func processMessage(ctx context.Context, repository *recovery.Repository, messag
 	}
 
 	if payload.ID <= 0 {
-		return true, errors.New("incomplete event missing valid order id")
+		payload.ID = payload.Order.ID
+	}
+
+	if payload.ID <= 0 {
+		return true, errors.New("incomplete event missing valid order id in payload.id or payload.order.id")
 	}
 
 	err := repository.RecoverIncompleteOrder(ctx, payload.ID, payload.Reason)
